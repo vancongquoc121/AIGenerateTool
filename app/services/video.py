@@ -245,6 +245,8 @@ def _get_effective_video_codec(preferred_codec: str | None = None) -> str:
         )
         return _DEFAULT_VIDEO_CODEC
 
+    logger.info(f"using hardware video codec: {selected_codec}")
+    utils.log_gpu_status(context=f"video codec {selected_codec}")
     return selected_codec
 
 

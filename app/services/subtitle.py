@@ -36,6 +36,9 @@ def create(audio_file, subtitle_file: str = ""):
             model = WhisperModel(
                 model_size_or_path=model_path, device=device, compute_type=compute_type
             )
+            if device == "cuda":
+                logger.info("whisper model loaded successfully on device: cuda")
+                utils.log_gpu_status(context="whisper model load")
         except Exception as e:
             logger.error(
                 f"failed to load model: {e} \n\n"

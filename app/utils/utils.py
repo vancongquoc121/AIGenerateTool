@@ -3,6 +3,7 @@ import math
 import os
 import re
 import shutil
+import subprocess
 from functools import lru_cache
 from pathlib import Path
 import threading
@@ -12,6 +13,50 @@ from uuid import uuid4
 from loguru import logger
 
 from app.models import const
+
+
+def log_gpu_status(context: str = "") -> None:
+    """
+    通过 nvidia-smi 打印当前 GPU 使用情况到日志。
+
+    背景：codec/device 配置（如 h264_nvenc、whisper device="cuda"）只能
+    表明“意图使用 GPU”，并不能证明进程真的调度到了 GPU 上运行。这里在关键
+    路径（选定 GPU 视频编码器、Whisper 在 GPU 上加载完成）主动打一条
+    nvidia-smi 快照日志，方便直接从日志确认 GPU 是否真的被占用，而不用
+    切换到终端手动执行 nvidia-smi。
+
+    找不到 nvidia-smi（无 NVIDIA GPU 或非 NVIDIA 环境）时只记录一条 info
+    日志，不抛异常，避免影响主流程。
+    """
+    label = f" ({context})" if context else ""
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=name,utilization.gpu,memory.used,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired) as e:
+        logger.info(f"nvidia-smi not available{label}: {e}, likely running on CPU")
+        return
+
+    if result.returncode != 0 or not result.stdout.strip():
+        logger.info(f"nvidia-smi returned no GPU info{label}, likely running on CPU")
+        return
+
+    for line in result.stdout.strip().splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) != 4:
+            continue
+        name, util, mem_used, mem_total = parts
+        logger.info(
+            f"GPU status{label}: {name}, util: {util}%, "
+            f"memory: {mem_used}MiB/{mem_total}MiB"
+        )
 
 
 def get_response(status: int, data: Any = None, message: str = ""):
