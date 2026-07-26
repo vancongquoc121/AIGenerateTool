@@ -331,5 +331,15 @@ app["redis_host"] = os.getenv(
 ffmpeg_path = app.get("ffmpeg_path", "")
 if ffmpeg_path and os.path.isfile(ffmpeg_path):
     os.environ["IMAGEIO_FFMPEG_EXE"] = ffmpeg_path
+elif not os.environ.get("IMAGEIO_FFMPEG_EXE"):
+    # MoviePy/imageio-ffmpeg 解析 ffmpeg 时优先使用自带的 bundled 二进制，
+    # 顺序在系统 PATH 之前。如果系统 PATH 里的 ffmpeg 支持硬件编码器
+    # （如 h264_nvenc）而 bundled 版本不支持，会出现：本项目自己检测
+    # encoder 可用（用的是系统 ffmpeg），但 MoviePy 实际写文件时用的是
+    # bundled ffmpeg 导致 "Unknown encoder" 报错。这里显式把 MoviePy
+    # 也指向系统 ffmpeg，确保两边解析到同一个可执行文件。
+    _system_ffmpeg = shutil.which("ffmpeg")
+    if _system_ffmpeg:
+        os.environ["IMAGEIO_FFMPEG_EXE"] = _system_ffmpeg
 
 logger.info(f"{project_name} v{project_version}")
