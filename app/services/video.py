@@ -89,6 +89,10 @@ _SUPPORTED_VIDEO_CODECS = (
     "h264_videotoolbox",
 )
 _runtime_disabled_video_codecs = set()
+# 记录已经打印过状态的编码器结论（CPU 默认 / 具体硬件编码器），避免
+# combine_videos 对几百个片段逐个调用 _get_effective_video_codec 时，
+# 每次都重复打印相同结论、甚至每次都执行一次 nvidia-smi 子进程。
+_logged_codec_conclusions = set()
 
 
 def _get_required_video_duration(audio_duration: float) -> float:
@@ -228,25 +232,34 @@ def _get_effective_video_codec(preferred_codec: str | None = None) -> str:
     """
     selected_codec = preferred_codec or _get_configured_video_codec()
     if selected_codec == _DEFAULT_VIDEO_CODEC:
+        if _DEFAULT_VIDEO_CODEC not in _logged_codec_conclusions:
+            logger.info(f"using default video codec (CPU): {_DEFAULT_VIDEO_CODEC}")
+            _logged_codec_conclusions.add(_DEFAULT_VIDEO_CODEC)
         return _DEFAULT_VIDEO_CODEC
 
     if selected_codec in _runtime_disabled_video_codecs:
-        logger.warning(
-            f"video codec {selected_codec} was disabled after a runtime failure, "
-            f"fallback to {_DEFAULT_VIDEO_CODEC}"
-        )
+        if selected_codec not in _logged_codec_conclusions:
+            logger.warning(
+                f"video codec {selected_codec} was disabled after a runtime failure, "
+                f"fallback to {_DEFAULT_VIDEO_CODEC}"
+            )
+            _logged_codec_conclusions.add(selected_codec)
         return _DEFAULT_VIDEO_CODEC
 
     ffmpeg_binary = utils.get_ffmpeg_binary()
     if not _ffmpeg_encoder_exists(ffmpeg_binary, selected_codec):
-        logger.warning(
-            f"ffmpeg encoder {selected_codec} is not available, "
-            f"fallback to {_DEFAULT_VIDEO_CODEC}"
-        )
+        if selected_codec not in _logged_codec_conclusions:
+            logger.warning(
+                f"ffmpeg encoder {selected_codec} is not available, "
+                f"fallback to {_DEFAULT_VIDEO_CODEC}"
+            )
+            _logged_codec_conclusions.add(selected_codec)
         return _DEFAULT_VIDEO_CODEC
 
-    logger.info(f"using hardware video codec: {selected_codec}")
-    utils.log_gpu_status(context=f"video codec {selected_codec}")
+    if selected_codec not in _logged_codec_conclusions:
+        logger.info(f"using hardware video codec: {selected_codec}")
+        utils.log_gpu_status(context=f"video codec {selected_codec}")
+        _logged_codec_conclusions.add(selected_codec)
     return selected_codec
 
 
